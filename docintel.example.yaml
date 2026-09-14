@@ -1,0 +1,22 @@
+# docintel configuration example.
+# Copy to ./docintel.yaml or ~/.config/docintel/config.yaml
+# Env overrides: DOCINTEL_MODEL, DOCINTEL_BASE_URL, DOCINTEL_API_KEY_ENV
+
+llm:
+  provider: openai
+  model: gpt-4o-mini          # required for LLM classification; no hardcoded default
+  api_key_env: OPENAI_API_KEY # env var holding the API key
+  # base_url: https://...     # optional: any OpenAI-compatible endpoint
+
+classification:
+  top_n: 5
+  # categories:               # omit to use the built-in taxonomy
+  #   - invoice
+  #   - contract
+  #   - report
+  #   - resume
+  #   - other
+  # keywords:                 # extra phrases for the rule-based fallback
+  #   invoice:
+  #     - "due date"
+  #     - "remittance"

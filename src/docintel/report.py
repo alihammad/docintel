@@ -9,6 +9,8 @@ from docintel.analysis import Analysis
 from docintel.classify.engine import ClassificationResult
 from docintel.extract.engine import ExtractionResult
 from docintel.models import Document
+from docintel.rag import AskResult
+from docintel.search.engine import IndexResult, SearchResult
 
 
 def render_classification_text(result: ClassificationResult) -> str:
@@ -60,6 +62,85 @@ def render_extraction_text(result: ExtractionResult) -> str:
 
 
 def render_extraction_json(result: ExtractionResult) -> dict:
+    return asdict(result)
+
+
+def render_index_text(result: IndexResult) -> str:
+    lines: list[str] = []
+    lines.append("Index:")
+    if result.used_fallback:
+        lines.append("  *** LOCAL FALLBACK EMBEDDINGS — lexical matching only ***")
+    else:
+        lines.append(f"  embeddings:             openai ({result.model})")
+    for doc in result.docs:
+        detail = f"{doc.chunks} chunks" if doc.chunks else ""
+        lines.append(f"  {doc.status:<12} {doc.path}" + (f"  ({detail})" if detail else ""))
+    lines.append(f"  total new chunks:       {result.total_chunks}")
+    if result.error:
+        lines.append("")
+        lines.append(f"  Embedding API unavailable: {result.error}")
+    if result.note:
+        lines.append(f"  Note: {result.note}")
+    return "\n".join(lines)
+
+
+def render_index_json(result: IndexResult) -> dict:
+    return asdict(result)
+
+
+def render_search_text(result: SearchResult) -> str:
+    lines: list[str] = []
+    lines.append(f"Search: {result.query}")
+    if result.used_fallback:
+        lines.append("  *** LOCAL FALLBACK EMBEDDINGS — lexical matching only ***")
+    else:
+        lines.append(f"  embeddings:             openai ({result.model})")
+    if not result.hits:
+        lines.append("  (no results)")
+    for i, hit in enumerate(result.hits, start=1):
+        location = hit.doc_path + (f" — {hit.heading_path}" if hit.heading_path else "")
+        bar_len = int(round(max(0.0, min(1.0, hit.score)) * 20))
+        bar = "#" * bar_len + "-" * (20 - bar_len)
+        lines.append(f"  {i}. [{hit.score:6.1%}] |{bar}| {location} (chunk {hit.chunk_index})")
+        lines.append(f"       {hit.snippet}")
+    if result.error:
+        lines.append("")
+        lines.append(f"  Embedding API unavailable: {result.error}")
+    if result.note:
+        lines.append(f"  Note: {result.note}")
+    return "\n".join(lines)
+
+
+def render_search_json(result: SearchResult) -> dict:
+    return asdict(result)
+
+
+def render_ask_text(result: AskResult) -> str:
+    lines: list[str] = []
+    lines.append(f"Question: {result.query}")
+    if result.used_fallback_retrieval:
+        lines.append("  *** LOCAL FALLBACK RETRIEVAL — lexical matching only ***")
+    if result.answer:
+        lines.append("")
+        lines.append("Answer:")
+        for line in result.answer.splitlines():
+            lines.append(f"  {line}")
+    elif result.llm_error:
+        lines.append("")
+        lines.append(f"  LLM unavailable: {result.llm_error}")
+    if result.citations:
+        lines.append("")
+        lines.append("Sources:")
+        for c in result.citations:
+            location = c.doc_path + (f" — {c.heading_path}" if c.heading_path else "")
+            lines.append(f"  [{c.number}] {location}")
+            lines.append(f"      {c.snippet}")
+    if result.note:
+        lines.append(f"  Note: {result.note}")
+    return "\n".join(lines)
+
+
+def render_ask_json(result: AskResult) -> dict:
     return asdict(result)
 
 

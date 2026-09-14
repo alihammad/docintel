@@ -67,10 +67,26 @@ class ExtractionConfig:
 
 
 @dataclass
+class SearchConfig:
+    """Semantic search / RAG settings.
+
+    ``embedding_model`` has no hardcoded default (same rule as ``llm.model``);
+    when unset, a deterministic local fallback embedder is used and flagged.
+    """
+
+    embedding_model: str | None = None
+    chunk_size: int = 1200
+    overlap: float = 0.15
+    top_k: int = 5
+    index_path: str = ".docintel/chroma"
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     classification: ClassificationConfig = field(default_factory=ClassificationConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
     source: Path | None = None  # where the config was loaded from (None = defaults)
 
 
@@ -146,6 +162,36 @@ def load_config(explicit_path: Path | None = None) -> Config:
     for category, fields_raw in schemas_raw.items():
         config.extraction.schemas[str(category)] = _parse_schema(str(category), fields_raw)
 
+    search_raw = raw.get("search", {})
+    if not isinstance(search_raw, dict):
+        raise ConfigError("'search' section must be a mapping")
+    search = config.search
+    if search_raw.get("embedding_model") is not None:
+        search.embedding_model = str(search_raw["embedding_model"])
+    if "chunk_size" in search_raw:
+        try:
+            search.chunk_size = max(200, int(search_raw["chunk_size"]))
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"search.chunk_size must be an integer: {search_raw['chunk_size']!r}") from exc
+    if "overlap" in search_raw:
+        try:
+            overlap = float(search_raw["overlap"])
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"search.overlap must be a number: {search_raw['overlap']!r}") from exc
+        if not 0.0 <= overlap <= 0.5:
+            raise ConfigError("search.overlap must be between 0.0 and 0.5")
+        search.overlap = overlap
+    if "top_k" in search_raw:
+        try:
+            search.top_k = max(1, int(search_raw["top_k"]))
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"search.top_k must be an integer: {search_raw['top_k']!r}") from exc
+    if search_raw.get("index_path") is not None:
+        path_str = str(search_raw["index_path"]).strip()
+        if not path_str:
+            raise ConfigError("search.index_path must not be empty")
+        search.index_path = path_str
+
     return _apply_env_overrides(config)
 
 
@@ -188,4 +234,6 @@ def _apply_env_overrides(config: Config) -> Config:
         config.llm.base_url = base_url
     if api_key_env := os.environ.get("DOCINTEL_API_KEY_ENV"):
         config.llm.api_key_env = api_key_env
+    if embedding_model := os.environ.get("DOCINTEL_EMBEDDING_MODEL"):
+        config.search.embedding_model = embedding_model
     return config

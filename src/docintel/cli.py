@@ -173,5 +173,130 @@ def extract_cmd(
         typer.echo(render_extraction_text(result))
 
 
+@app.command("index")
+def index_cmd(
+    paths: Annotated[
+        list[Path], typer.Argument(help="Document files or directories to index", exists=False)
+    ],
+    reindex: Annotated[
+        bool, typer.Option("--reindex", help="Rebuild the index even for unchanged files")
+    ] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Output the result as JSON")
+    ] = False,
+    config: Annotated[
+        Path | None, typer.Option("--config", help="Path to docintel YAML config file")
+    ] = None,
+) -> None:
+    """Index documents for semantic search (chunk, embed, store in ChromaDB)."""
+    from docintel.report import render_index_json, render_index_text
+    from docintel.search.engine import index_documents
+
+    files = _expand_paths(paths)
+    if not files:
+        typer.echo("Error: no supported documents found in the given paths", err=True)
+        raise typer.Exit(code=2)
+
+    result = index_documents(files, _load_cfg(config), reindex=reindex)
+
+    if json_output:
+        typer.echo(json.dumps(render_index_json(result), indent=2))
+    else:
+        typer.echo(render_index_text(result))
+
+    if result.error and result.total_chunks == 0:
+        raise typer.Exit(code=1)
+
+
+@app.command("search")
+def search_cmd(
+    query: Annotated[str, typer.Argument(help="Natural-language search query")],
+    top_k: Annotated[
+        int | None, typer.Option("-k", "--top-k", help="Number of results to return")
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Output the result as JSON")
+    ] = False,
+    config: Annotated[
+        Path | None, typer.Option("--config", help="Path to docintel YAML config file")
+    ] = None,
+) -> None:
+    """Semantic search over indexed documents."""
+    from docintel.report import render_search_json, render_search_text
+    from docintel.search.engine import search as run_search
+    from docintel.search.store import StoreError
+
+    cfg = _load_cfg(config)
+    try:
+        result = run_search(query, cfg, top_k=top_k)
+    except StoreError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(render_search_json(result), indent=2))
+    else:
+        typer.echo(render_search_text(result))
+
+    if result.error and not result.hits:
+        raise typer.Exit(code=1)
+
+
+@app.command("ask")
+def ask_cmd(
+    query: Annotated[str, typer.Argument(help="Question to answer from indexed documents")],
+    top_k: Annotated[
+        int | None, typer.Option("-k", "--top-k", help="Number of source chunks to retrieve")
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Output the result as JSON")
+    ] = False,
+    config: Annotated[
+        Path | None, typer.Option("--config", help="Path to docintel YAML config file")
+    ] = None,
+) -> None:
+    """Answer a question from indexed documents with source citations (RAG)."""
+    from docintel.rag import ask as run_ask
+    from docintel.report import render_ask_json, render_ask_text
+    from docintel.search.store import StoreError
+
+    cfg = _load_cfg(config)
+    try:
+        result = run_ask(query, cfg, top_k=top_k)
+    except StoreError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(render_ask_json(result), indent=2))
+    else:
+        typer.echo(render_ask_text(result))
+
+    if result.answer is None:
+        raise typer.Exit(code=1)
+
+
+def _expand_paths(paths: list[Path]) -> list[Path]:
+    """Expand directories into supported document files (recursive)."""
+    from docintel.models import DocFormat
+
+    supported = {".md", ".markdown", ".pdf", ".docx"}
+    files: list[Path] = []
+    for path in paths:
+        if path.is_dir():
+            for candidate in sorted(path.rglob("*")):
+                if candidate.is_file() and candidate.suffix.lower() in supported:
+                    files.append(candidate)
+        elif path.is_file():
+            try:
+                DocFormat.from_path(path)
+                files.append(path)
+            except ValueError:
+                typer.echo(f"Warning: skipping unsupported file: {path}", err=True)
+        else:
+            typer.echo(f"Warning: path not found: {path}", err=True)
+    return files
+
+
 def main() -> None:
     app()

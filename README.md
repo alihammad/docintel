@@ -27,7 +27,47 @@ uv run docintel classify invoice.pdf
 
 # Classification alongside the analysis report
 uv run docintel analyze contract.docx --classify
+
+# Index documents (or whole directories) for semantic search
+uv run docintel index docs/ invoice.pdf
+
+# Semantic search across the index
+uv run docintel search "payment terms" -k 5
+
+# Ask a question — answered from the index with source citations (RAG)
+uv run docintel ask "How many vacation days do employees get?"
 ```
+
+## Semantic search + RAG
+
+`docintel index` parses, chunks (heading-aware for Markdown, overlapping
+windows otherwise), embeds, and stores documents in a persistent
+[ChromaDB](https://docs.trychroma.com/) index at `.docintel/chroma/`
+(configurable). Re-running `index` skips unchanged files; `--reindex` forces a
+rebuild.
+
+`docintel search` embeds the query and returns the top-k most similar chunks
+with scores, source files, and heading paths. `docintel ask` retrieves those
+chunks and sends them to the LLM, which answers with `[n]` citations mapped
+back to file + heading.
+
+```yaml
+search:
+  # embedding_model: text-embedding-3-small  # no hardcoded default
+  chunk_size: 1200
+  overlap: 0.15
+  top_k: 5
+  index_path: .docintel/chroma
+```
+
+Environment override: `DOCINTEL_EMBEDDING_MODEL` (the OpenAI-compatible
+endpoint and API key env var are shared with the `llm:` section).
+
+**Fallback**: when no embedding model is configured (or the embeddings API
+fails), docintel uses a deterministic local hashed bag-of-words embedder.
+This is lexical matching only — the output clearly highlights it with a
+`*** LOCAL FALLBACK EMBEDDINGS ***` banner. `ask` requires an LLM for the
+answer itself; without one it prints the retrieved sources and exits non-zero.
 
 ## Classification
 
@@ -94,6 +134,15 @@ src/docintel/
     categories.py      # built-in taxonomy + keyword hints
     config.py          # YAML config loader
     engine.py          # LLM classification + rule fallback
+  extract/
+    schemas.py         # built-in per-category field schemas
+    engine.py          # LLM extraction + rule fallback
+  search/
+    chunking.py        # heading-aware / windowed chunking
+    embeddings.py      # OpenAI embeddings + local fallback
+    store.py           # ChromaDB persistent vector store
+    engine.py          # index + search orchestration
+  rag.py               # RAG question answering with citations
   parsers/
     markdown_parser.py
     pdf_parser.py

@@ -1,6 +1,7 @@
 # docintel configuration example.
 # Copy to ./docintel.yaml or ~/.config/docintel/config.yaml
-# Env overrides: DOCINTEL_MODEL, DOCINTEL_BASE_URL, DOCINTEL_API_KEY_ENV
+# Env overrides: DOCINTEL_MODEL, DOCINTEL_BASE_URL, DOCINTEL_API_KEY_ENV,
+#                DOCINTEL_EMBEDDING_MODEL
 
 llm:
   provider: openai
@@ -42,3 +43,12 @@ extraction:
   #     - name: reference
   #       type: text
   #       labels: ["ref no"]
+
+search:
+  # Semantic search + RAG settings (`docintel index` / `search` / `ask`).
+  # embedding_model: text-embedding-3-small  # no hardcoded default; when unset,
+  #                                          # a local lexical fallback is used (flagged)
+  chunk_size: 1200          # chars per chunk
+  overlap: 0.15             # fraction of chunk_size carried between chunks (0.0-0.5)
+  top_k: 5                  # default number of search results / RAG sources
+  index_path: .docintel/chroma  # ChromaDB persistent index location

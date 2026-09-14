@@ -85,6 +85,10 @@ def analyze_cmd(
     extract: Annotated[
         bool, typer.Option("--extract", help="Also extract key fields (implies --classify)")
     ] = False,
+    category: Annotated[
+        str | None,
+        typer.Option("--category", help="Document category (schema) to use; default: auto-classify"),
+    ] = None,
     config: Annotated[
         Path | None, typer.Option("--config", help="Path to docintel YAML config file")
     ] = None,
@@ -97,7 +101,8 @@ def analyze_cmd(
         extract_fields(
             doc,
             _load_cfg(config),
-            category=classification.best.category if classification and classification.best else None,
+            category=category
+            or (classification.best.category if classification and classification.best else None),
         )
         if extract
         else None

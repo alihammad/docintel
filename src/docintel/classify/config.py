@@ -9,6 +9,9 @@ from pathlib import Path
 import yaml
 
 from docintel.classify.categories import CATEGORY_KEYWORDS, DEFAULT_CATEGORIES
+from docintel.extract.schemas import FieldSpec, Schema, schema_for
+
+VALID_FIELD_TYPES = ("text", "date", "money", "email", "phone")
 
 CONFIG_FILENAMES = ("docintel.yaml", "docintel.yml")
 
@@ -50,9 +53,24 @@ class ClassificationConfig:
 
 
 @dataclass
+class ExtractionConfig:
+    """Per-category field schemas for key-field extraction.
+
+    ``schemas`` maps category -> Schema. Built-in schemas are used for any
+    category not overridden here; user schemas replace built-ins entirely.
+    """
+
+    schemas: dict[str, Schema] = field(default_factory=dict)
+
+    def schema_for(self, category: str) -> Schema:
+        return self.schemas.get(category) or schema_for(category)
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     classification: ClassificationConfig = field(default_factory=ClassificationConfig)
+    extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
     source: Path | None = None  # where the config was loaded from (None = defaults)
 
 
@@ -119,7 +137,47 @@ def load_config(explicit_path: Path | None = None) -> Config:
             added = tuple(dict.fromkeys(p.lower() for p in phrases))
             cls.keywords[key] = tuple(dict.fromkeys([*existing, *added]))
 
+    ext_raw = raw.get("extraction", {})
+    if not isinstance(ext_raw, dict):
+        raise ConfigError("'extraction' section must be a mapping")
+    schemas_raw = ext_raw.get("schemas", {})
+    if not isinstance(schemas_raw, dict):
+        raise ConfigError("'extraction.schemas' must be a mapping of category -> list of fields")
+    for category, fields_raw in schemas_raw.items():
+        config.extraction.schemas[str(category)] = _parse_schema(str(category), fields_raw)
+
     return _apply_env_overrides(config)
+
+
+def _parse_schema(category: str, fields_raw: object) -> Schema:
+    """Parse one user-defined schema: a list of field mappings or short strings."""
+    if not isinstance(fields_raw, list) or not fields_raw:
+        raise ConfigError(f"extraction.schemas[{category!r}] must be a non-empty list of fields")
+    specs: list[FieldSpec] = []
+    for item in fields_raw:
+        if isinstance(item, str):
+            specs.append(FieldSpec(name=item))
+            continue
+        if not isinstance(item, dict) or "name" not in item:
+            raise ConfigError(
+                f"extraction.schemas[{category!r}]: each field must be a string or a mapping with 'name'"
+            )
+        name = str(item["name"]).strip()
+        if not name:
+            raise ConfigError(f"extraction.schemas[{category!r}]: field name must not be empty")
+        ftype = str(item.get("type", "text")).strip().lower()
+        if ftype not in VALID_FIELD_TYPES:
+            raise ConfigError(
+                f"extraction.schemas[{category!r}].{name}: invalid type {ftype!r} "
+                f"(allowed: {', '.join(VALID_FIELD_TYPES)})"
+            )
+        labels_raw = item.get("labels", ())
+        if isinstance(labels_raw, str):
+            labels_raw = [labels_raw]
+        if not isinstance(labels_raw, list) or not all(isinstance(x, str) for x in labels_raw):
+            raise ConfigError(f"extraction.schemas[{category!r}].{name}: 'labels' must be a list of strings")
+        specs.append(FieldSpec(name=name, type=ftype, labels=tuple(str(x).lower() for x in labels_raw)))
+    return Schema(category=category, fields=tuple(specs))
 
 
 def _apply_env_overrides(config: Config) -> Config:

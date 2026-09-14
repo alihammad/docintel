@@ -11,9 +11,11 @@ import typer
 from docintel.analysis import analyze
 from docintel.classify import ConfigError, classify_document, load_config
 from docintel.classify.engine import ClassificationResult
+from docintel.extract.engine import ExtractionResult, extract_fields
 from docintel.models import Document
 from docintel.report import (
     render_classification_text,
+    render_extraction_text,
     render_json,
     render_text,
 )
@@ -80,6 +82,9 @@ def analyze_cmd(
     classify: Annotated[
         bool, typer.Option("--classify", help="Also classify the document")
     ] = False,
+    extract: Annotated[
+        bool, typer.Option("--extract", help="Also extract key fields (implies --classify)")
+    ] = False,
     config: Annotated[
         Path | None, typer.Option("--config", help="Path to docintel YAML config file")
     ] = None,
@@ -87,14 +92,25 @@ def analyze_cmd(
     """Analyze a document and print a report."""
     doc = _load_doc(path)
     analysis = analyze(doc, check_links=not no_link_check)
-    classification = _classify(doc, config) if classify else None
+    classification = _classify(doc, config) if (classify or extract) else None
+    extraction = (
+        extract_fields(
+            doc,
+            _load_cfg(config),
+            category=classification.best.category if classification and classification.best else None,
+        )
+        if extract
+        else None
+    )
 
     if json_output:
-        report = render_json(doc, analysis, classification)
+        report = render_json(doc, analysis, classification, extraction)
     else:
         report = render_text(doc, analysis)
         if classification is not None:
             report += "\n\n" + render_classification_text(classification)
+        if extraction is not None:
+            report += "\n\n" + render_extraction_text(extraction)
     typer.echo(report)
 
     if analysis.broken_links:
@@ -128,6 +144,33 @@ def classify_cmd(
         typer.echo(json.dumps(render_classification_json(result), indent=2))
     else:
         typer.echo(render_classification_text(result))
+
+
+@app.command("extract")
+def extract_cmd(
+    path: Annotated[Path, typer.Argument(help="Document file to extract fields from", exists=False)],
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Output the result as JSON")
+    ] = False,
+    category: Annotated[
+        str | None,
+        typer.Option("--category", help="Document category (schema) to use; default: auto-classify"),
+    ] = None,
+    config: Annotated[
+        Path | None, typer.Option("--config", help="Path to docintel YAML config file")
+    ] = None,
+) -> None:
+    """Extract key fields into structured data (LLM with rule-based fallback)."""
+    from docintel.report import render_extraction_json
+
+    doc = _load_doc(path)
+    cfg = _load_cfg(config)
+    result = extract_fields(doc, cfg, category=category)
+
+    if json_output:
+        typer.echo(json.dumps(render_extraction_json(result), indent=2))
+    else:
+        typer.echo(render_extraction_text(result))
 
 
 def main() -> None:

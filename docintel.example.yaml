@@ -20,3 +20,25 @@ classification:
   #   invoice:
   #     - "due date"
   #     - "remittance"
+
+extraction:
+  # Per-category field schemas for `docintel extract`.
+  # Built-in schemas exist for: invoice, receipt, purchase_order, quotation,
+  # contract, resume (plus a generic fallback). Entries here REPLACE built-ins.
+  # Field types: text | date | money | email | phone
+  # schemas:
+  #   invoice:
+  #     - name: invoice_number
+  #       type: text
+  #       labels: ["invoice number", "invoice no", "invoice #"]
+  #     - name: total_amount
+  #       type: money
+  #       labels: ["total", "amount due"]
+  #     - name: due_date
+  #       type: date
+  #       labels: ["due date"]
+  #   my_custom_doc:            # works for custom categories too
+  #     - title                 # shorthand: type=text, no labels
+  #     - name: reference
+  #       type: text
+  #       labels: ["ref no"]

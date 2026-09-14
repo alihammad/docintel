@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from docintel.analysis import Analysis
 from docintel.classify.engine import ClassificationResult
+from docintel.extract.engine import ExtractionResult
 from docintel.models import Document
 
 
@@ -32,6 +33,33 @@ def render_classification_text(result: ClassificationResult) -> str:
 
 
 def render_classification_json(result: ClassificationResult) -> dict:
+    return asdict(result)
+
+
+def render_extraction_text(result: ExtractionResult) -> str:
+    lines: list[str] = []
+    lines.append("Extracted fields:")
+    lines.append(f"  category:               {result.category}")
+    if result.used_fallback:
+        lines.append("  *** RULE-BASED FALLBACK — no LLM was used ***")
+    else:
+        lines.append(f"  method:                 llm ({result.model})")
+    for f in result.fields:
+        value = f"{f.value}" if f.value is not None else ""
+        lines.append(f"  {f.name:<22} {value:<24} ({f.confidence:.0%}, {f.source})")
+        if f.evidence:
+            lines.append(f"       from: {f.evidence}")
+    if result.missing:
+        lines.append(f"  missing:                {', '.join(result.missing)}")
+    if result.llm_error:
+        lines.append("")
+        lines.append(f"  LLM unavailable: {result.llm_error}")
+    if result.note:
+        lines.append(f"  Note: {result.note}")
+    return "\n".join(lines)
+
+
+def render_extraction_json(result: ExtractionResult) -> dict:
     return asdict(result)
 
 
@@ -87,6 +115,7 @@ def render_json(
     doc: Document,
     analysis: Analysis,
     classification: ClassificationResult | None = None,
+    extraction: ExtractionResult | None = None,
 ) -> str:
     payload = {
         "path": str(doc.path),
@@ -98,4 +127,6 @@ def render_json(
     }
     if classification is not None:
         payload["classification"] = render_classification_json(classification)
+    if extraction is not None:
+        payload["extraction"] = render_extraction_json(extraction)
     return json.dumps(payload, indent=2)
